@@ -607,26 +607,53 @@ The `handleExtract()` function iterates over all selected sample events and coll
 - Message shows current site name and collection being processed
 - "Extraction complete" message shows when done
 
-### Milestone 6: Results Display & Export
+### Milestone 6: Results Display & Export ✅
 **Goal:** User can download data with covariates in two formats.
 
 **Part A: CSV Summary Export (quick, no extra API calls)**
-- [ ] Add "Download CSV" button (appears after extraction completes)
-- [ ] Generate CSV from existing summary data + covariate columns
-- [ ] Flatten nested fields (observers, protocols, tags)
-- [ ] Download triggers browser file save
+- [x] Add "Download CSV" button (appears after extraction completes)
+- [x] Generate CSV from existing summary data + covariate columns
+- [x] Flatten nested fields (observers, protocols, tags)
+- [x] Download triggers browser file save
 
 **Part B: XLSX Full Export (fetches protocol-specific data)**
-- [ ] Add "Download XLSX" button (appears after extraction completes)
-- [ ] Determine which project/protocol combinations to fetch based on selected SEs
-- [ ] Fetch CSV data from protocol-specific endpoints (parallel, with progress)
-- [ ] Build multi-tab XLSX using SheetJS library
-- [ ] Join covariate columns to each row by `sample_event_id`
-- [ ] Download triggers browser file save
+- [x] Add "Download XLSX" button (appears after extraction completes)
+- [x] Determine which project/protocol combinations to fetch based on selected SEs
+- [x] Fetch CSV data from protocol-specific endpoints (parallel, with progress)
+- [x] Build multi-tab XLSX using SheetJS library
+- [x] Join covariate columns to each row by `sample_event_id`
+- [x] Download triggers browser file save
+- [x] Sort worksheet tabs alphabetically for consistent ordering
 
 **Deliverables:**
 1. CSV with SE metadata + covariates (instant download)
 2. XLSX with full protocol data + covariates (requires fetching)
+
+#### Milestone 6 Implementation Notes
+
+**1. Files created:**
+- `src/utils/csv.js` - CSV generation and download utilities
+  - `generateCsvContent()` - generates CSV from sample event summary data + covariates
+  - `downloadCsv()` - triggers browser download
+- `src/utils/xlsx.js` - XLSX generation utilities
+  - `parseCsv()` - robust CSV parser handling quoted fields
+  - `csvRowsToObjects()` - converts CSV rows to objects
+  - `getRequiredFetches()` - determines which project/protocol combinations need fetching
+  - `buildWorkbook()` - builds multi-tab XLSX with covariates joined
+  - `downloadWorkbook()` - triggers browser download
+
+**2. API additions:**
+- Added `PROTOCOL_ENDPOINTS` mapping in `mermaidApi.js` for the 6 supported protocols
+- Added `getProtocolCsv()` function to fetch protocol-specific CSV data
+
+**3. Download buttons:**
+- "Download CSV (Summary)" - instant, uses already-loaded data
+- "Download XLSX (Full Data)" - fetches protocol data with progress indicator
+
+**4. Key implementation details:**
+- XLSX fetching uses concurrency limit of 5 parallel requests
+- Only fetches protocols that have endpoint mappings (filters out unknown protocols like `colonies_bleached`)
+- Worksheets sorted alphabetically by protocol name
 
 #### Part A: CSV Summary Export
 
@@ -759,14 +786,69 @@ CSV is instant; XLSX requires fetching and shows progress.
 ### Milestone 7: Polish & Edge Cases
 **Goal:** Handle edge cases and improve UX.
 
-- [ ] Loading states throughout
-- [ ] Error handling and user feedback
-- [ ] Empty state messaging
-- [ ] Buffer size configuration (if not done in MVP)
-- [ ] Performance optimization for large SE counts
-- [ ] Basic responsive layout
+**Loading states:**
+- [x] Initial data load ("Loading user profile...", "Loading sample events...")
+- [x] STAC collections loading
+- [x] Extraction progress (progress bar with SE count)
+- [x] XLSX download progress (progress bar with fetch count)
+
+**Error handling:**
+- [x] Initial data load errors displayed
+- [x] STAC collection load errors displayed
+- [x] Extraction errors listed in sidebar (first 5 + summary)
+- [x] XLSX download errors via alert
+
+**Empty states & validation:**
+- [x] No sample events matching filters message
+- [x] Stats selector warning when none selected
+- [ ] Warning for sample events with missing coordinates
+- [ ] Message when user has no projects
+- [ ] Clear stale extraction results when selection changes
+
+**Configuration:**
+- [ ] Buffer size configuration (default: 1000m, min: 0m, max: 100,000m)
+
+**Performance:**
+- [x] Parallel fetching with concurrency limits (10 for extraction, 5 for XLSX)
+- [x] STAC item caching by collection+date during extraction
+
+**Layout:**
+- [ ] Basic responsive layout for smaller screens
 
 **Deliverable:** Production-ready MVP.
+
+#### Milestone 7 Implementation Notes
+
+**Buffer size configuration:**
+- Currently hardcoded as `buffer: 1000` in `handleExtract()` in `App.jsx` (line ~520)
+- Also passed to `getZonalStats()` in `src/services/zonalStatsApi.js`
+- Add state: `const [bufferSize, setBufferSize] = useState(1000)`
+- Add input in sidebar (in `.zonal-config` section) with min=0, max=100000, default=1000
+- Validate input before extraction
+
+**Warning for missing coordinates:**
+- Sample events have `latitude` and `longitude` fields (can be null)
+- Before extraction, filter `selectedSampleEvents` to find any with null coords
+- Show warning message listing affected sites, or skip them with notification
+- Check in `handleExtract()` before starting extraction loop
+
+**Clear stale extraction results:**
+- State variables: `extractionResults`, `extractionErrors` in `App.jsx`
+- Clear these when `selectedSampleEventIds` or `selectedCollections` or `selectedStats` changes
+- Add `useEffect` that calls `setExtractionResults(null)` and `setExtractionErrors([])`
+
+**No projects message:**
+- Check `projects.length === 0` after data loads (projects derived from `memberProjectSummaries`)
+- Show message in main content area: "You don't have access to any projects with sample events."
+
+**Responsive layout:**
+- Current layout uses `.dashboard` with flexbox (sidebar 300px fixed + main content flex)
+- Add media query for screens < 768px: stack sidebar above content
+- Consider collapsible sidebar on mobile
+
+**Data validation (already implemented):**
+- Covariate values that are null, undefined, NaN, or non-numeric result in blank cells
+- Implemented in `src/utils/csv.js` and `src/utils/xlsx.js` using: `typeof value === 'number' && !Number.isNaN(value)`
 
 ---
 

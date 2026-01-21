@@ -267,11 +267,17 @@
   margin-bottom: 0.75rem;
 }
 
+.filter-header-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
 .filter-header-btn {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  width: 100%;
+  flex: 1;
   padding: 0.5rem;
   background: white;
   border: 1px solid #ccc;
@@ -279,6 +285,19 @@
   cursor: pointer;
   font-size: 0.85rem;
   text-align: left;
+}
+
+.filter-header-row .filter-header-btn {
+  border-radius: 4px 0 0 4px;
+  border-right: none;
+}
+
+.filter-header-row .filter-clear-btn {
+  border-radius: 0 4px 4px 0;
+  border: 1px solid #ccc;
+  border-left: none;
+  padding: 0 0.5rem;
+  background: white;
 }
 
 .filter-header-btn:hover {
@@ -307,17 +326,18 @@
 }
 
 .filter-clear-btn {
-  background: none;
+  background: white;
   border: none;
   color: #666;
   cursor: pointer;
   font-size: 1rem;
   line-height: 1;
-  padding: 0 0.15rem;
+  padding: 0 0.5rem;
 }
 
 .filter-clear-btn:hover {
   color: #bb1600;
+  background-color: #fff0f0;
 }
 
 .filter-chevron {
@@ -332,6 +352,7 @@
   max-height: 150px;
   overflow-y: auto;
   background: white;
+  margin-top: -1px;
 }
 
 .filter-option {
@@ -853,4 +874,76 @@
   border-radius: 4px;
   font-size: 0.85rem;
   color: #2e7d32;
+}
+
+.extraction-success p {
+  margin: 0 0 0.75rem 0;
+}
+
+/* Download Buttons */
+.download-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.download-button {
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  background-color: #174b82;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.download-button:hover:not(:disabled) {
+  background-color: #123d6a;
+}
+
+.download-button:disabled {
+  background-color: #aaa;
+  cursor: not-allowed;
+}
+
+.download-button.download-secondary {
+  background-color: white;
+  color: #174b82;
+  border: 1px solid #174b82;
+}
+
+.download-button.download-secondary:hover:not(:disabled) {
+  background-color: #f0f5fa;
+}
+
+/* XLSX Download Progress */
+.xlsx-progress {
+  margin-top: 0.5rem;
+}
+
+.xlsx-progress progress {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+}
+
+.xlsx-progress progress::-webkit-progress-bar {
+  background-color: #c8e6c8;
+  border-radius: 3px;
+}
+
+.xlsx-progress progress::-webkit-progress-value {
+  background-color: #2e7d32;
+  border-radius: 3px;
+}
+
+.xlsx-progress progress::-moz-progress-bar {
+  background-color: #2e7d32;
+  border-radius: 3px;
+}
+
+.xlsx-progress-text {
+  margin: 0.25rem 0 0 0;
+  font-size: 0.8rem;
 }

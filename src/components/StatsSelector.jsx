@@ -1,10 +1,11 @@
+// Ordered for 2-column grid: left column (mean, min, max), right column (median, majority, std)
 const AVAILABLE_STATS = [
   { id: 'mean', label: 'Mean', description: 'Average value' },
   { id: 'median', label: 'Median', description: 'Middle value' },
-  { id: 'std', label: 'Std Dev', description: 'Standard deviation' },
   { id: 'min', label: 'Min', description: 'Minimum value' },
-  { id: 'max', label: 'Max', description: 'Maximum value' },
   { id: 'majority', label: 'Majority', description: 'Most frequent value' },
+  { id: 'max', label: 'Max', description: 'Maximum value' },
+  { id: 'std', label: 'Std Dev', description: 'Standard deviation' },
 ]
 
 function StatsSelector({ selectedStats, onSelectionChange }) {

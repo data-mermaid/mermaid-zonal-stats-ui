@@ -1,5 +1,15 @@
 const MERMAID_API_URL = import.meta.env.VITE_MERMAID_API_URL
 
+// Protocol endpoint names mapped to display names
+export const PROTOCOL_ENDPOINTS = {
+  beltfish: { endpoint: 'beltfishes', displayName: 'Belt Fish' },
+  benthiclit: { endpoint: 'benthiclits', displayName: 'Benthic LIT' },
+  benthicpit: { endpoint: 'benthicpits', displayName: 'Benthic PIT' },
+  benthicpqt: { endpoint: 'benthicpqts', displayName: 'Benthic PQT' },
+  bleachingqc: { endpoint: 'bleachingqcs', displayName: 'Bleaching' },
+  habitatcomplexity: { endpoint: 'habitatcomplexities', displayName: 'Habitat Complexity' },
+}
+
 export const createMermaidApi = (getAccessToken) => ({
   async getMe() {
     const token = await getAccessToken()
@@ -35,6 +45,31 @@ export const createMermaidApi = (getAccessToken) => ({
     }
 
     return results
+  },
+
+  /**
+   * Fetch protocol-specific CSV data for a project
+   * @param {string} projectId - The project UUID
+   * @param {string} protocol - Protocol key (e.g., 'beltfish', 'benthicpit')
+   * @returns {Promise<string>} - Raw CSV text
+   */
+  async getProtocolCsv(projectId, protocol) {
+    const token = await getAccessToken()
+    const protocolInfo = PROTOCOL_ENDPOINTS[protocol]
+    if (!protocolInfo) {
+      throw new Error(`Unknown protocol: ${protocol}`)
+    }
+
+    const url = `${MERMAID_API_URL}/projects/${projectId}/${protocolInfo.endpoint}/sampleevents/csv/`
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${protocol} data: ${response.status}`)
+    }
+
+    return response.text()
   },
 })
 

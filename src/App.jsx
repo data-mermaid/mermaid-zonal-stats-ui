@@ -6,9 +6,18 @@ import {
   extractCountries,
   extractOrganizations,
   flattenRecords,
+  PROTOCOL_ENDPOINTS,
 } from './services/mermaidApi'
 import { findItemForDate, getCogUrl } from './services/stacApi'
 import { getZonalStats } from './services/zonalStatsApi'
+import { generateCsvContent, downloadCsv } from './utils/csv'
+import {
+  parseCsv,
+  csvRowsToObjects,
+  getRequiredFetches,
+  buildWorkbook,
+  downloadWorkbook,
+} from './utils/xlsx'
 import SampleEventMap from './components/SampleEventMap'
 import CollectionSelector from './components/CollectionSelector'
 import StatsSelector from './components/StatsSelector'
@@ -88,24 +97,24 @@ function MultiSelect({ label, options, selected, onChange }) {
 
   return (
     <div className="filter-group">
-      <button
-        type="button"
-        className="filter-header-btn"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <span className="filter-label">{label}</span>
-        <span className="filter-meta">
-          {selected.length > 0 && (
-            <>
-              <span className="filter-count">{selected.length}</span>
-              <button type="button" className="filter-clear-btn" onClick={handleClear} title="Clear">
-                ×
-              </button>
-            </>
-          )}
-          <span className="filter-chevron">{isExpanded ? '▾' : '▸'}</span>
-        </span>
-      </button>
+      <div className="filter-header-row">
+        <button
+          type="button"
+          className="filter-header-btn"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          <span className="filter-label">{label}</span>
+          <span className="filter-meta">
+            {selected.length > 0 && <span className="filter-count">{selected.length}</span>}
+            <span className="filter-chevron">{isExpanded ? '▾' : '▸'}</span>
+          </span>
+        </button>
+        {selected.length > 0 && (
+          <button type="button" className="filter-clear-btn" onClick={handleClear} title="Clear">
+            ×
+          </button>
+        )}
+      </div>
       {isExpanded && (
         <div className="filter-options">
           {options.map((opt) => (
@@ -304,13 +313,17 @@ function App() {
   // Zonal stats configuration state
   const [collections, setCollections] = useState([])
   const [selectedCollections, setSelectedCollections] = useState(new Set())
-  const [selectedStats, setSelectedStats] = useState(new Set(['mean']))
+  const [selectedStats, setSelectedStats] = useState(new Set(['mean', 'min', 'max']))
 
   // Extraction state
   const [extracting, setExtracting] = useState(false)
   const [extractionProgress, setExtractionProgress] = useState({ current: 0, total: 0, currentSE: 0, totalSE: 0 })
   const [extractionResults, setExtractionResults] = useState(null)
   const [extractionErrors, setExtractionErrors] = useState([])
+
+  // XLSX download state
+  const [xlsxDownloading, setXlsxDownloading] = useState(false)
+  const [xlsxProgress, setXlsxProgress] = useState({ current: 0, total: 0, message: '' })
 
   const getAccessToken = useCallback(
     () =>
@@ -568,6 +581,105 @@ function App() {
     setCollections(loadedCollections)
   }, [])
 
+  const handleDownloadCsv = () => {
+    if (!extractionResults || selectedSampleEvents.length === 0) return
+
+    const selectedCollectionObjects = collections.filter((c) => selectedCollections.has(c.id))
+    const csvContent = generateCsvContent(
+      selectedSampleEvents,
+      extractionResults,
+      selectedCollectionObjects,
+      [...selectedStats]
+    )
+
+    const timestamp = new Date().toISOString().slice(0, 10)
+    downloadCsv(csvContent, `mermaid_covariates_${timestamp}.csv`)
+  }
+
+  const handleDownloadXlsx = async () => {
+    if (!extractionResults || selectedSampleEvents.length === 0) return
+
+    setXlsxDownloading(true)
+    setXlsxProgress({ current: 0, total: 0, message: 'Preparing...' })
+
+    try {
+      const api = createMermaidApi(getAccessToken)
+
+      // Determine which project/protocol combinations to fetch
+      const requiredFetches = getRequiredFetches(selectedSampleEvents)
+
+      if (requiredFetches.length === 0) {
+        throw new Error('No protocol data available for selected sample events')
+      }
+
+      setXlsxProgress({ current: 0, total: requiredFetches.length, message: 'Fetching protocol data...' })
+
+      // Fetch protocol CSVs with concurrency limit
+      const CONCURRENCY = 5
+      const protocolData = {} // protocol -> { headers, data }
+
+      for (let i = 0; i < requiredFetches.length; i += CONCURRENCY) {
+        const batch = requiredFetches.slice(i, i + CONCURRENCY)
+
+        const batchResults = await Promise.all(
+          batch.map(async ({ projectId, protocol }) => {
+            try {
+              const csvText = await api.getProtocolCsv(projectId, protocol)
+              const rows = parseCsv(csvText)
+              const { headers, data } = csvRowsToObjects(rows)
+              return { protocol, headers, data, error: null }
+            } catch (err) {
+              console.error(`Failed to fetch ${protocol} for project ${projectId}:`, err)
+              return { protocol, headers: [], data: [], error: err.message }
+            }
+          })
+        )
+
+        // Merge results by protocol
+        for (const result of batchResults) {
+          if (result.error) continue
+          if (!protocolData[result.protocol]) {
+            protocolData[result.protocol] = { headers: result.headers, data: [] }
+          }
+          protocolData[result.protocol].data.push(...result.data)
+        }
+
+        setXlsxProgress({
+          current: Math.min(i + CONCURRENCY, requiredFetches.length),
+          total: requiredFetches.length,
+          message: `Fetching protocol data... ${Math.min(i + CONCURRENCY, requiredFetches.length)}/${requiredFetches.length}`,
+        })
+      }
+
+      if (Object.keys(protocolData).length === 0) {
+        throw new Error('No protocol data could be fetched')
+      }
+
+      setXlsxProgress({ current: requiredFetches.length, total: requiredFetches.length, message: 'Building XLSX...' })
+
+      // Build workbook with covariates
+      const selectedCollectionObjects = collections.filter((c) => selectedCollections.has(c.id))
+      const workbook = buildWorkbook(
+        protocolData,
+        extractionResults,
+        selectedCollectionObjects,
+        [...selectedStats],
+        selectedSampleEventIds
+      )
+
+      // Download
+      const timestamp = new Date().toISOString().slice(0, 10)
+      downloadWorkbook(workbook, `mermaid_covariates_${timestamp}.xlsx`)
+
+      setXlsxProgress({ current: requiredFetches.length, total: requiredFetches.length, message: 'Done!' })
+    } catch (err) {
+      console.error('XLSX download error:', err)
+      alert(`Failed to download XLSX: ${err.message}`)
+    } finally {
+      setXlsxDownloading(false)
+    }
+  }
+
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } })
 
   if (isLoading) {
@@ -671,7 +783,25 @@ function App() {
                 )}
                 {extractionResults && !extracting && (
                   <div className="extraction-success">
-                    Extraction complete. See results below.
+                    <p>Extraction complete!</p>
+                    <div className="download-buttons">
+                      <button className="download-button" onClick={handleDownloadCsv}>
+                        Download CSV (Summary)
+                      </button>
+                      <button
+                        className="download-button download-secondary"
+                        onClick={handleDownloadXlsx}
+                        disabled={xlsxDownloading}
+                      >
+                        {xlsxDownloading ? 'Downloading...' : 'Download XLSX (Full Data)'}
+                      </button>
+                    </div>
+                    {xlsxDownloading && (
+                      <div className="xlsx-progress">
+                        <progress value={xlsxProgress.current} max={xlsxProgress.total || 1} />
+                        <p className="xlsx-progress-text">{xlsxProgress.message}</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
