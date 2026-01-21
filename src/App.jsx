@@ -7,6 +7,8 @@ import {
   extractOrganizations,
   flattenRecords,
 } from './services/mermaidApi'
+import { findItemForDate, getCogUrl } from './services/stacApi'
+import { getZonalStats } from './services/zonalStatsApi'
 import SampleEventMap from './components/SampleEventMap'
 import CollectionSelector from './components/CollectionSelector'
 import StatsSelector from './components/StatsSelector'
@@ -300,8 +302,15 @@ function App() {
   const [selectedSampleEventIds, setSelectedSampleEventIds] = useState(new Set())
 
   // Zonal stats configuration state
+  const [collections, setCollections] = useState([])
   const [selectedCollections, setSelectedCollections] = useState(new Set())
   const [selectedStats, setSelectedStats] = useState(new Set(['mean']))
+
+  // Extraction state
+  const [extracting, setExtracting] = useState(false)
+  const [extractionProgress, setExtractionProgress] = useState({ current: 0, total: 0, currentSE: 0, totalSE: 0 })
+  const [extractionResults, setExtractionResults] = useState(null)
+  const [extractionErrors, setExtractionErrors] = useState([])
 
   const getAccessToken = useCallback(
     () =>
@@ -412,6 +421,153 @@ function App() {
     setEndDate('')
   }
 
+  // Get selected sample events with full data
+  const selectedSampleEvents = useMemo(() => {
+    return filteredRecords.filter((r) => selectedSampleEventIds.has(r.sample_event_id))
+  }, [filteredRecords, selectedSampleEventIds])
+
+  const handleExtract = async () => {
+    if (selectedSampleEvents.length === 0) return
+    if (selectedCollections.size === 0) return
+    if (selectedStats.size === 0) return
+
+    setExtracting(true)
+    setExtractionResults(null)
+    setExtractionErrors([])
+
+    const collectionIds = [...selectedCollections]
+    const stats = [...selectedStats]
+
+    // Build list of all tasks (SE × collection pairs)
+    const tasks = []
+    for (const se of selectedSampleEvents) {
+      for (const collectionId of collectionIds) {
+        const collection = collections.find((c) => c.id === collectionId)
+        tasks.push({
+          se,
+          collectionId,
+          collectionName: collection?.title || collectionId,
+        })
+      }
+    }
+
+    const totalOperations = tasks.length
+    const totalSE = selectedSampleEvents.length
+    const numCollections = collectionIds.length
+    let completedOperations = 0
+
+    // Results structure: { [sampleEventId]: { [collectionId]: { mean: x, std: y, ... } } }
+    const results = {}
+    const errors = []
+
+    // Cache STAC item lookups by collectionId:sampleDate
+    const stacCache = new Map()
+
+    const processTask = async (task) => {
+      const { se, collectionId, collectionName } = task
+      const cacheKey = `${collectionId}:${se.sample_date}`
+
+      try {
+        // Check cache for STAC item
+        let item
+        if (stacCache.has(cacheKey)) {
+          item = stacCache.get(cacheKey)
+        } else {
+          item = await findItemForDate(collectionId, se.sample_date)
+          stacCache.set(cacheKey, item)
+        }
+
+        if (!item) {
+          return {
+            error: {
+              sampleEventId: se.sample_event_id,
+              siteName: se.site_name,
+              collectionId,
+              collectionName,
+              error: 'No imagery found for this date',
+            },
+          }
+        }
+
+        const cogUrl = getCogUrl(item)
+
+        if (!cogUrl) {
+          return {
+            error: {
+              sampleEventId: se.sample_event_id,
+              siteName: se.site_name,
+              collectionId,
+              collectionName,
+              error: 'No COG URL in item',
+            },
+          }
+        }
+
+        // Call zonal stats API
+        const zonalResult = await getZonalStats({
+          lon: se.longitude,
+          lat: se.latitude,
+          cogUrl,
+          stats,
+          buffer: 1000,
+        })
+
+        return {
+          result: {
+            sampleEventId: se.sample_event_id,
+            collectionId,
+            stats: zonalResult.band_1 || {},
+          },
+        }
+      } catch (err) {
+        return {
+          error: {
+            sampleEventId: se.sample_event_id,
+            siteName: se.site_name,
+            collectionId,
+            collectionName,
+            error: err.message,
+          },
+        }
+      }
+    }
+
+    // Process tasks in parallel with concurrency limit
+    const CONCURRENCY = 10
+    for (let i = 0; i < tasks.length; i += CONCURRENCY) {
+      const batch = tasks.slice(i, i + CONCURRENCY)
+
+      setExtractionProgress({
+        current: completedOperations,
+        total: totalOperations,
+        currentSE: Math.floor(completedOperations / numCollections),
+        totalSE,
+      })
+
+      const batchResults = await Promise.all(batch.map(processTask))
+
+      for (const outcome of batchResults) {
+        if (outcome.result) {
+          const { sampleEventId, collectionId, stats: resultStats } = outcome.result
+          if (!results[sampleEventId]) results[sampleEventId] = {}
+          results[sampleEventId][collectionId] = resultStats
+        } else if (outcome.error) {
+          errors.push(outcome.error)
+        }
+        completedOperations++
+      }
+    }
+
+    setExtractionProgress({ current: totalOperations, total: totalOperations, currentSE: totalSE, totalSE })
+    setExtractionResults(results)
+    setExtractionErrors(errors)
+    setExtracting(false)
+  }
+
+  const handleCollectionsLoaded = useCallback((loadedCollections) => {
+    setCollections(loadedCollections)
+  }, [])
+
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } })
 
   if (isLoading) {
@@ -469,11 +625,55 @@ function App() {
                 <CollectionSelector
                   selectedCollections={selectedCollections}
                   onSelectionChange={setSelectedCollections}
+                  onCollectionsLoaded={handleCollectionsLoaded}
                 />
                 <StatsSelector
                   selectedStats={selectedStats}
                   onSelectionChange={setSelectedStats}
                 />
+                <button
+                  className="extract-button"
+                  onClick={handleExtract}
+                  disabled={
+                    extracting ||
+                    selectedSampleEventIds.size === 0 ||
+                    selectedCollections.size === 0 ||
+                    selectedStats.size === 0
+                  }
+                >
+                  {extracting ? 'Extracting...' : 'Extract Covariates'}
+                </button>
+                {extracting && (
+                  <div className="extraction-progress">
+                    <progress
+                      value={extractionProgress.current}
+                      max={extractionProgress.total}
+                    />
+                    <p className="progress-count">
+                      {extractionProgress.currentSE} / {extractionProgress.totalSE} sample events
+                    </p>
+                  </div>
+                )}
+                {extractionErrors.length > 0 && (
+                  <div className="extraction-errors">
+                    <p className="errors-header">{extractionErrors.length} error(s):</p>
+                    <ul className="errors-list">
+                      {extractionErrors.slice(0, 5).map((err, i) => (
+                        <li key={i}>
+                          {err.siteName} - {err.collectionName}: {err.error}
+                        </li>
+                      ))}
+                      {extractionErrors.length > 5 && (
+                        <li>...and {extractionErrors.length - 5} more</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+                {extractionResults && !extracting && (
+                  <div className="extraction-success">
+                    Extraction complete. See results below.
+                  </div>
+                )}
               </div>
             </div>
             <div className="main-content">

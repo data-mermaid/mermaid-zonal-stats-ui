@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { fetchCollectionsWithCogStatus } from '../services/stacApi'
 
-function CollectionSelector({ selectedCollections, onSelectionChange }) {
+function CollectionSelector({ selectedCollections, onSelectionChange, onCollectionsLoaded }) {
   const [collections, setCollections] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -13,6 +13,7 @@ function CollectionSelector({ selectedCollections, onSelectionChange }) {
         setLoading(true)
         const data = await fetchCollectionsWithCogStatus()
         setCollections(data)
+        onCollectionsLoaded?.(data)
       } catch (err) {
         console.error('Error loading collections:', err)
         setError(err.message)
@@ -22,7 +23,7 @@ function CollectionSelector({ selectedCollections, onSelectionChange }) {
     }
 
     loadCollections()
-  }, [])
+  }, [onCollectionsLoaded])
 
   const handleToggle = (collectionId) => {
     const newSelection = new Set(selectedCollections)

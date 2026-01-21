@@ -570,29 +570,191 @@ Components are displayed in a "Select covariates" section in the sidebar, below 
 
 ---
 
-### Milestone 5: Zonal Stats Extraction
+### Milestone 5: Zonal Stats Extraction ✅
 **Goal:** Core extraction workflow works.
 
-- [ ] For each selected SE + collection:
-  - [ ] Search STAC for items by datetime (on or before sample_date)
-  - [ ] Handle fallback (first item after date if none before)
-  - [ ] Call zonal stats API with SE coordinates, buffer, stats, COG URL
-- [ ] Aggregate results into a data structure
-- [ ] Show progress indicator during extraction
-- [ ] Handle errors gracefully (display which SEs/collections failed)
+- [x] For each selected SE + collection:
+  - [x] Search STAC for items by datetime (on or before sample_date)
+  - [x] Handle fallback (first item after date if none before)
+  - [x] Call zonal stats API with SE coordinates, buffer, stats, COG URL
+- [x] Aggregate results into a data structure
+- [x] Show progress indicator during extraction
+- [x] Handle errors gracefully (display which SEs/collections failed)
 
 **Deliverable:** Clicking "Extract" fetches zonal stats for all selected SEs and collections.
 
-### Milestone 6: Results Display & CSV Export
-**Goal:** User can view and download results.
+#### Milestone 5 Implementation Notes
 
-- [ ] Fetch full SE-level data for selected sample events
-- [ ] Merge SE data with computed zonal stats
-- [ ] Display combined results in a table
-- [ ] Generate CSV with all columns
-- [ ] Download button triggers CSV download
+**1. Files created/modified:**
+- `src/services/zonalStatsApi.js` - Zonal stats API client with `getZonalStats()` function
+- `src/App.jsx` - Added extraction state, `handleExtract()` function, Extract button, progress UI, and error display
 
-**Deliverable:** User can view results table and download CSV with SE data + zonal stats.
+**2. Extraction Workflow:**
+The `handleExtract()` function iterates over all selected sample events and collections sequentially, showing progress as each operation completes. For each combination it:
+1. Calls `findItemForDate()` to find the appropriate COG
+2. Extracts the COG URL with `getCogUrl()`
+3. Calls `getZonalStats()` with the SE coordinates and selected stats
+4. Stores results in `{ [sampleEventId]: { [collectionId]: { mean: x, std: y, ... } } }` structure
+
+**3. Error Handling:**
+- Missing imagery: "No imagery found for this date"
+- Missing COG URL: "No COG URL in item"
+- API errors: Full error message captured
+- Errors displayed in sidebar with first 5 shown, rest summarized
+
+**4. Progress UI:**
+- Progress bar shows current/total operations
+- Message shows current site name and collection being processed
+- "Extraction complete" message shows when done
+
+### Milestone 6: Results Display & Export
+**Goal:** User can download data with covariates in two formats.
+
+**Part A: CSV Summary Export (quick, no extra API calls)**
+- [ ] Add "Download CSV" button (appears after extraction completes)
+- [ ] Generate CSV from existing summary data + covariate columns
+- [ ] Flatten nested fields (observers, protocols, tags)
+- [ ] Download triggers browser file save
+
+**Part B: XLSX Full Export (fetches protocol-specific data)**
+- [ ] Add "Download XLSX" button (appears after extraction completes)
+- [ ] Determine which project/protocol combinations to fetch based on selected SEs
+- [ ] Fetch CSV data from protocol-specific endpoints (parallel, with progress)
+- [ ] Build multi-tab XLSX using SheetJS library
+- [ ] Join covariate columns to each row by `sample_event_id`
+- [ ] Download triggers browser file save
+
+**Deliverables:**
+1. CSV with SE metadata + covariates (instant download)
+2. XLSX with full protocol data + covariates (requires fetching)
+
+#### Part A: CSV Summary Export
+
+Uses data already loaded from `/projectsummarysampleevents/` - no additional API calls.
+
+**CSV Columns:**
+```
+# Identifiers
+sample_event_id, project_id, project_name, site_id, site_name
+
+# Location
+latitude, longitude, country_name, reef_type, reef_zone, reef_exposure
+
+# Management
+management_name, management_rules (comma-separated), management_compliance
+
+# Survey Info
+sample_date, protocols (comma-separated list), observers (comma-separated names)
+
+# Covariates (dynamic, based on selected collections × stats)
+{collection_title}_{statistic}  # e.g., NOAA_DHW_Monthly_mean, NOAA_DHW_Monthly_std
+```
+
+**Implementation:** Simple - flatten nested fields, append covariate columns, generate CSV string, trigger download.
+
+#### Part B: XLSX Full Export
+
+**Approach: Fetch protocol-specific CSV data, build XLSX client-side with covariates.**
+
+This gives users the same rich data they'd get from mermaidr, but with covariates pre-joined.
+
+**Why this approach:**
+1. **Full data**: Protocol-specific endpoints return all survey data (species, biomass, cover %, etc.)
+2. **Synchronous**: CSV endpoints return data directly (unlike async xlsx endpoints that use S3+email)
+3. **Client-side XLSX**: SheetJS library builds xlsx in browser - no server needed
+4. **Pre-joined covariates**: User doesn't need to manually join; we do it by `sample_event_id`
+
+**Workflow:**
+
+```
+1. User selects SEs, collections, stats
+2. User clicks "Extract Covariates" → current flow runs, stores results
+3. User clicks "Download XLSX"
+4. App determines needed API calls:
+   - Group selected SEs by project_id
+   - For each project, identify which protocols have data (from protocols field)
+   - Build list of endpoints: /projects/{project_id}/{protocol}/sampleevents/csv
+5. Fetch all CSV data (parallel with concurrency limit, show progress)
+6. For each protocol's data:
+   - Parse CSV rows
+   - Join covariate columns by sample_event_id
+   - Add to XLSX as a tab named "{protocol}_sampleevents"
+7. Trigger browser download of completed XLSX
+```
+
+**API Endpoints to Call:**
+
+For sample event level data (one row per SE):
+```
+/projects/{project_id}/beltfishes/sampleevents/csv
+/projects/{project_id}/benthiclits/sampleevents/csv
+/projects/{project_id}/benthicpits/sampleevents/csv
+/projects/{project_id}/benthicpqts/sampleevents/csv
+/projects/{project_id}/bleachingqcs/sampleevents/csv
+/projects/{project_id}/habitatcomplexities/sampleevents/csv
+```
+
+**Efficiency Considerations:**
+
+1. **Only fetch what's needed**:
+   - If user selected 50 SEs across 3 projects, only call those 3 projects
+   - If those SEs only have beltfish and benthicpit protocols, only fetch those 2 protocols per project
+   - Worst case: 6 protocols × N projects calls
+
+2. **Filter by selected SEs**:
+   - CSV endpoints return ALL SEs for that project/protocol
+   - After fetching, filter to only rows where `sample_event_id` is in selected set
+   - This is unavoidable - API doesn't support filtering by SE list
+
+3. **Parallel fetching**:
+   - Use same concurrency pattern as covariate extraction (10 concurrent)
+   - Show progress: "Fetching data: 3/12 endpoints"
+
+4. **Caching**:
+   - If user re-downloads without changing SE selection, could cache CSV responses
+   - MVP can skip this optimization
+
+**Covariate Join:**
+
+Each CSV row has `sample_event_id`. Our extraction results are keyed by `sample_event_id`:
+```javascript
+extractionResults = {
+  [sampleEventId]: {
+    [collectionId]: { mean: x, std: y, ... }
+  }
+}
+```
+
+For each CSV row:
+1. Look up `extractionResults[row.sample_event_id]`
+2. For each collection × stat, add column: `{collection_title}_{stat}`
+3. If no covariate data for that SE (extraction error), leave blank
+
+**XLSX Structure:**
+
+```
+Sheet 1: "beltfish_sampleevents"
+  - All columns from CSV
+  - Plus: DHW_mean, DHW_std, SST_mean, SST_std, ... (covariate columns)
+
+Sheet 2: "benthicpit_sampleevents"
+  - All columns from CSV
+  - Plus: same covariate columns
+
+... (one sheet per protocol that has data)
+```
+
+**Dependencies:**
+
+- SheetJS (xlsx): ~500KB, well-maintained, handles xlsx generation
+- Install: `yarn add xlsx`
+
+**Both Export Options in Scope:**
+
+1. **"Download CSV"** - Quick, uses existing summary data + covariates (no extra API calls)
+2. **"Download XLSX"** - Fetches protocol data, builds multi-tab xlsx with covariates
+
+CSV is instant; XLSX requires fetching and shows progress.
 
 ### Milestone 7: Polish & Edge Cases
 **Goal:** Handle edge cases and improve UX.
