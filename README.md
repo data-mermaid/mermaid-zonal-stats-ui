@@ -1,4 +1,4 @@
-# MERMAID Covariates
+# MERMAID Zonal Stats
 
 A web application for extracting environmental covariates (zonal statistics) from raster datasets for MERMAID coral reef sample events.
 

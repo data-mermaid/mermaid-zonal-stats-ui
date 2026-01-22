@@ -26,40 +26,135 @@ import StatsSelector from './components/StatsSelector'
 import mermaidLogo from './assets/mermaid-logo.svg'
 import './App.css'
 
+function ExternalLinkIcon({ className }) {
+  return (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  )
+}
+
+function HamburgerIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  )
+}
+
+function NavLinks() {
+  return (
+    <>
+      <a
+        href="https://app.datamermaid.org/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="nav-link"
+      >
+        MERMAID Collect
+        <ExternalLinkIcon className="nav-link-icon" />
+      </a>
+      <a
+        href="https://explore.datamermaid.org/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="nav-link"
+      >
+        MERMAID Explore
+        <ExternalLinkIcon className="nav-link-icon" />
+      </a>
+      <a
+        href="https://mermaid.prescient.earth/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="nav-link"
+      >
+        MERMAID Covariates
+        <ExternalLinkIcon className="nav-link-icon" />
+      </a>
+    </>
+  )
+}
+
 function Header({ user, isAuthenticated, onLogin, onLogout }) {
   const [showMenu, setShowMenu] = useState(false)
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
 
   return (
     <header className="header">
       <div className="header-left">
         <img src={mermaidLogo} alt="" className="header-logo-img" />
-        <span className="header-title">MERMAID Covariates</span>
+        <span className="header-title">MERMAID Zonal Stats</span>
       </div>
       <nav className="header-nav">
+        <div className="nav-desktop">
+          <NavLinks />
+        </div>
         {isAuthenticated ? (
-          <div className="avatar-container">
-            <button
-              className="avatar-button"
-              onClick={() => setShowMenu(!showMenu)}
-              aria-label="User menu"
-            >
-              {user?.picture ? (
-                <img src={user.picture} alt="" className="avatar-img" />
-              ) : (
-                <span className="avatar-initials">
-                  {(user?.full_name?.[0] || user?.email?.[0] || 'U').toUpperCase()}
-                </span>
+          <>
+            <div className="avatar-container">
+              <button
+                className="avatar-button"
+                onClick={() => setShowMenu(!showMenu)}
+                aria-label="User menu"
+              >
+                {user?.picture ? (
+                  <img src={user.picture} alt="" className="avatar-img" />
+                ) : (
+                  <span className="avatar-initials">
+                    {(user?.full_name?.[0] || user?.email?.[0] || 'U').toUpperCase()}
+                  </span>
+                )}
+              </button>
+              {showMenu && (
+                <div className="user-menu">
+                  <p className="user-menu-name">{user?.full_name || user?.email}</p>
+                  <button onClick={onLogout} className="user-menu-button">
+                    Log out
+                  </button>
+                </div>
               )}
-            </button>
-            {showMenu && (
-              <div className="user-menu">
-                <p className="user-menu-name">{user?.full_name || user?.email}</p>
-                <button onClick={onLogout} className="user-menu-button">
-                  Log out
-                </button>
-              </div>
-            )}
-          </div>
+            </div>
+            <div className="nav-mobile">
+              <button
+                className="hamburger-button"
+                onClick={() => setShowMobileMenu(!showMobileMenu)}
+                aria-label="Navigation menu"
+              >
+                <HamburgerIcon />
+              </button>
+              {showMobileMenu && (
+                <div className="mobile-menu">
+                  <NavLinks />
+                </div>
+              )}
+            </div>
+          </>
         ) : (
           <button onClick={onLogin} className="header-login">
             Log in
@@ -201,14 +296,25 @@ function FilterPane({
 
   return (
     <div className="filter-pane">
-      <div className="filter-header">
-        <h3>Filter your MERMAID data</h3>
-        {hasFilters && (
-          <button className="clear-filters-btn" onClick={onClearFilters}>
-            Clear all
-          </button>
-        )}
+      <div className="section-header">
+        <h3>
+          Filter your MERMAID data
+          <a
+            href="https://explore.datamermaid.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="section-help-link"
+            title="Explore MERMAID data"
+          >
+            <ExternalLinkIcon className="section-help-icon" />
+          </a>
+        </h3>
       </div>
+      {hasFilters && (
+        <button className="clear-section-btn" onClick={onClearFilters}>
+          Clear all
+        </button>
+      )}
       <MultiSelect
         label="Projects"
         options={projects.map((p) => ({ value: p.id, label: p.name }))}
@@ -739,7 +845,7 @@ function App() {
       <main className="main">
         {!isAuthenticated ? (
           <div className="welcome">
-            <h1>Welcome to MERMAID Covariates</h1>
+            <h1>Welcome to MERMAID Zonal Stats</h1>
             <p>
               Extract environmental covariates from raster datasets for your coral reef sample
               events.
@@ -784,7 +890,28 @@ function App() {
                 onClearFilters={handleClearFilters}
               />
               <div className="zonal-config">
-                <h3>Select covariates</h3>
+                <div className="section-header">
+                  <h3>
+                    Select covariates
+                    <a
+                      href="https://mermaid.prescient.earth/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="section-help-link"
+                      title="Browse available covariates"
+                    >
+                      <ExternalLinkIcon className="section-help-icon" />
+                    </a>
+                  </h3>
+                </div>
+                {selectedCollections.size > 0 && (
+                  <button
+                    className="clear-section-btn"
+                    onClick={() => setSelectedCollections(new Set())}
+                  >
+                    Clear all
+                  </button>
+                )}
                 <CollectionSelector
                   selectedCollections={selectedCollections}
                   onSelectionChange={setSelectedCollections}
