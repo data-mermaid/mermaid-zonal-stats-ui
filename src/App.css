@@ -62,10 +62,8 @@
   padding: 0;
   cursor: pointer;
   background: #123d6a;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
+  display: grid;
+  place-items: center;
 }
 
 .avatar-button:hover {
@@ -73,9 +71,8 @@
 }
 
 .avatar-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: 50%;
 }
 
@@ -235,6 +232,7 @@
   background-color: #f8f9fa;
   padding: 1rem;
   border-radius: 4px;
+  border: 1px solid #ccc;
 }
 
 .filter-header {
@@ -287,7 +285,7 @@
   text-align: left;
 }
 
-.filter-header-row .filter-header-btn {
+.filter-header-row:has(.filter-clear-btn) .filter-header-btn {
   border-radius: 4px 0 0 4px;
   border-right: none;
 }
@@ -594,6 +592,7 @@
   background-color: #f8f9fa;
   padding: 1rem;
   border-radius: 4px;
+  border: 1px solid #ccc;
 }
 
 .zonal-config h3 {
@@ -946,4 +945,161 @@
 .xlsx-progress-text {
   margin: 0.25rem 0 0 0;
   font-size: 0.8rem;
+}
+
+/* Buffer Configuration */
+.buffer-config {
+  margin-top: 0.75rem;
+}
+
+.buffer-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.25rem;
+}
+
+.buffer-input {
+  width: 100%;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.buffer-input:focus {
+  outline: none;
+  border-color: #174b82;
+}
+
+/* Coordinates Warning */
+.coords-warning {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background-color: #fff8e6;
+  border: 1px solid #f5d88f;
+  border-radius: 4px;
+}
+
+.coords-warning-header {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #8a6d00;
+}
+
+.coords-warning-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.coords-warning-list li {
+  margin-bottom: 0.25rem;
+}
+
+/* No Projects State */
+.no-projects {
+  text-align: center;
+  padding: 4rem 2rem;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.no-projects h2 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.no-projects p {
+  color: #666;
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+/* Responsive Layout */
+@media (max-width: 900px) {
+  .dashboard {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    position: static;
+    order: 1;
+  }
+
+  .main-content {
+    order: 2;
+  }
+
+  .main {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .header {
+    padding: 0 0.5rem;
+  }
+
+  .header-title {
+    font-size: 1rem;
+  }
+
+  .main {
+    padding: 0.75rem;
+    margin-top: 4rem;
+  }
+
+  .welcome {
+    padding: 2rem 1rem;
+  }
+
+  .welcome h1 {
+    font-size: 1.5rem;
+  }
+
+  .filter-pane,
+  .zonal-config {
+    padding: 0.75rem;
+  }
+
+  .map-container {
+    height: 300px;
+  }
+
+  .table-container {
+    max-height: 300px;
+  }
+
+  .sample-event-table {
+    font-size: 0.8rem;
+  }
+
+  .sample-event-table th,
+  .sample-event-table td {
+    padding: 0.5rem 0.5rem;
+  }
+
+  .sample-event-table .col-project,
+  .sample-event-table .col-country {
+    display: none;
+  }
+
+  .stats-list {
+    grid-template-columns: 1fr;
+  }
+
+  .download-buttons {
+    flex-direction: column;
+  }
+
+  .content-header h2 {
+    font-size: 1rem;
+  }
 }

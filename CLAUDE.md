@@ -10,6 +10,71 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Related Repositories:** Other MERMAID repositories are available in sister directories (`../mermaid-api/`, `../mermaid-webapp/`, `../mermaid-dash-v2/`, `../zonal-stats/`, etc.). See `../CLAUDE.md` for the full monorepo overview.
 
+---
+
+## Current Implementation Status (v0.1.0 - MVP Complete)
+
+**All milestones complete. Ready for first deploy.**
+
+### What's Implemented
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Auth0 authentication | ✅ | Same client ID as Collect/Explore |
+| User profile & projects | ✅ | Fetches from `/me/` and `/projectsummarysampleevents/` |
+| Filter by project/date/country/org | ✅ | Collapsible checkbox filters with clear buttons |
+| Sample event table | ✅ | Sortable, selectable, fixed-width columns |
+| Leaflet map with clustering | ✅ | Selected/unselected markers with different styling |
+| STAC collection selection | ✅ | Auto-detects COG availability, disables vector-only |
+| Statistics selection | ✅ | 6 stats: mean, median, std, min, max, majority |
+| Buffer size configuration | ✅ | 0-100,000m, default 1000m |
+| Covariate extraction | ✅ | Parallel processing with progress, STAC item caching |
+| CSV export (summary) | ✅ | Instant download with SE metadata + covariates |
+| XLSX export (full data) | ✅ | Multi-tab workbook with protocol data + covariates |
+| Missing coordinates warning | ✅ | Shows affected sites, skips in extraction |
+| No projects message | ✅ | Helpful message for users without project access |
+| Clear stale results | ✅ | Auto-clears when selection/config changes |
+| Responsive layout | ✅ | Mobile-friendly at < 900px and < 600px |
+| Approximate stats | ✅ | `approx_stats: true` for faster zonal stats |
+
+### File Structure
+
+```
+src/
+├── main.jsx                 # App entry, Auth0Provider setup
+├── App.jsx                  # Main app component (~900 lines)
+├── App.css                  # All styles (~1050 lines)
+├── index.css                # Global styles (fonts, resets)
+├── assets/
+│   └── mermaid-logo.svg     # Header logo
+├── components/
+│   ├── SampleEventMap.jsx   # Leaflet map with clustering
+│   ├── CollectionSelector.jsx # STAC collection picker
+│   └── StatsSelector.jsx    # Statistics checkboxes
+├── services/
+│   ├── mermaidApi.js        # MERMAID API client + helpers
+│   ├── stacApi.js           # STAC catalog client
+│   └── zonalStatsApi.js     # Zonal stats API client
+└── utils/
+    ├── csv.js               # CSV generation and download
+    └── xlsx.js              # XLSX workbook building
+```
+
+### Key Configuration
+
+- **Auth0**: Uses `datamermaid.auth0.com` with shared client ID
+- **APIs**: MERMAID API, STAC catalog, Zonal Stats API (see `.env.sample`)
+- **Concurrency**: 10 parallel for extraction, 5 for XLSX fetches
+- **Buffer default**: 1000 meters
+
+### Known Limitations
+
+- Large extractions (1000+ SE × collection combinations) may be slow
+- XLSX download requires fetching protocol CSVs which can take time
+- No raster preview on map (TiTiler integration deferred)
+
+---
+
 ## MVP Requirements
 
 ### Authentication
@@ -783,7 +848,7 @@ Sheet 2: "benthicpit_sampleevents"
 
 CSV is instant; XLSX requires fetching and shows progress.
 
-### Milestone 7: Polish & Edge Cases
+### Milestone 7: Polish & Edge Cases ✅
 **Goal:** Handle edge cases and improve UX.
 
 **Loading states:**
@@ -801,50 +866,47 @@ CSV is instant; XLSX requires fetching and shows progress.
 **Empty states & validation:**
 - [x] No sample events matching filters message
 - [x] Stats selector warning when none selected
-- [ ] Warning for sample events with missing coordinates
-- [ ] Message when user has no projects
-- [ ] Clear stale extraction results when selection changes
+- [x] Warning for sample events with missing coordinates
+- [x] Message when user has no projects
+- [x] Clear stale extraction results when selection changes
 
 **Configuration:**
-- [ ] Buffer size configuration (default: 1000m, min: 0m, max: 100,000m)
+- [x] Buffer size configuration (default: 1000m, min: 0m, max: 100,000m)
 
 **Performance:**
 - [x] Parallel fetching with concurrency limits (10 for extraction, 5 for XLSX)
 - [x] STAC item caching by collection+date during extraction
 
 **Layout:**
-- [ ] Basic responsive layout for smaller screens
+- [x] Basic responsive layout for smaller screens
 
 **Deliverable:** Production-ready MVP.
 
 #### Milestone 7 Implementation Notes
 
-**Buffer size configuration:**
-- Currently hardcoded as `buffer: 1000` in `handleExtract()` in `App.jsx` (line ~520)
-- Also passed to `getZonalStats()` in `src/services/zonalStatsApi.js`
-- Add state: `const [bufferSize, setBufferSize] = useState(1000)`
-- Add input in sidebar (in `.zonal-config` section) with min=0, max=100000, default=1000
-- Validate input before extraction
+**Buffer size configuration:** ✅
+- Added `bufferSize` state (default: 1000) in App.jsx
+- Added input field in `.zonal-config` section with validation (min=0, max=100000)
+- Updated `handleExtract()` to use `bufferSize` state instead of hardcoded value
 
-**Warning for missing coordinates:**
-- Sample events have `latitude` and `longitude` fields (can be null)
-- Before extraction, filter `selectedSampleEvents` to find any with null coords
-- Show warning message listing affected sites, or skip them with notification
-- Check in `handleExtract()` before starting extraction loop
+**Warning for missing coordinates:** ✅
+- Added `sampleEventsWithoutCoords` useMemo to detect selected SEs with null coordinates
+- Warning displayed in sidebar showing affected sites (first 3 + count of remaining)
+- Extraction skips sample events without coordinates with alert if all selected lack coords
 
-**Clear stale extraction results:**
-- State variables: `extractionResults`, `extractionErrors` in `App.jsx`
-- Clear these when `selectedSampleEventIds` or `selectedCollections` or `selectedStats` changes
-- Add `useEffect` that calls `setExtractionResults(null)` and `setExtractionErrors([])`
+**Clear stale extraction results:** ✅
+- Added useEffect hook that clears `extractionResults` and `extractionErrors` when these change:
+  - `selectedSampleEventIds`, `selectedCollections`, `selectedStats`, `bufferSize`
 
-**No projects message:**
-- Check `projects.length === 0` after data loads (projects derived from `memberProjectSummaries`)
-- Show message in main content area: "You don't have access to any projects with sample events."
+**No projects message:** ✅
+- Added conditional render when `projects.length === 0`
+- Shows message: "You don't have access to any projects with sample events"
+- Styled with `.no-projects` class
 
-**Responsive layout:**
-- Current layout uses `.dashboard` with flexbox (sidebar 300px fixed + main content flex)
-- Add media query for screens < 768px: stack sidebar above content
-- Consider collapsible sidebar on mobile
+**Responsive layout:** ✅
+- Added media queries in App.css for screens < 900px and < 600px
+- On small screens: sidebar stacks above main content, reduced padding
+- On mobile (< 600px): hide project/country columns in table, single-column stats grid, reduced map height
 
 **Data validation (already implemented):**
 - Covariate values that are null, undefined, NaN, or non-numeric result in blank cells

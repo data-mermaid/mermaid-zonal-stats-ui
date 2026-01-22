@@ -23,6 +23,7 @@ export async function getZonalStats({ lon, lat, cogUrl, stats, buffer = 1000 }) 
       },
       stats,
       image: { url: cogUrl, bands: [1] },
+      approx_stats: true,
     }),
   })
 

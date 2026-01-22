@@ -314,6 +314,7 @@ function App() {
   const [collections, setCollections] = useState([])
   const [selectedCollections, setSelectedCollections] = useState(new Set())
   const [selectedStats, setSelectedStats] = useState(new Set(['mean', 'min', 'max']))
+  const [bufferSize, setBufferSize] = useState(1000)
 
   // Extraction state
   const [extracting, setExtracting] = useState(false)
@@ -439,10 +440,33 @@ function App() {
     return filteredRecords.filter((r) => selectedSampleEventIds.has(r.sample_event_id))
   }, [filteredRecords, selectedSampleEventIds])
 
+  // Clear stale extraction results when selection or configuration changes
+  useEffect(() => {
+    setExtractionResults(null)
+    setExtractionErrors([])
+  }, [selectedSampleEventIds, selectedCollections, selectedStats, bufferSize])
+
+  // Check for sample events with missing coordinates
+  const sampleEventsWithoutCoords = useMemo(() => {
+    return selectedSampleEvents.filter(
+      (se) => se.latitude == null || se.longitude == null
+    )
+  }, [selectedSampleEvents])
+
   const handleExtract = async () => {
     if (selectedSampleEvents.length === 0) return
     if (selectedCollections.size === 0) return
     if (selectedStats.size === 0) return
+
+    // Filter to only sample events with valid coordinates
+    const extractableSampleEvents = selectedSampleEvents.filter(
+      (se) => se.latitude != null && se.longitude != null
+    )
+
+    if (extractableSampleEvents.length === 0) {
+      alert('None of the selected sample events have valid coordinates.')
+      return
+    }
 
     setExtracting(true)
     setExtractionResults(null)
@@ -451,9 +475,9 @@ function App() {
     const collectionIds = [...selectedCollections]
     const stats = [...selectedStats]
 
-    // Build list of all tasks (SE × collection pairs)
+    // Build list of all tasks (SE × collection pairs) - only for events with coordinates
     const tasks = []
-    for (const se of selectedSampleEvents) {
+    for (const se of extractableSampleEvents) {
       for (const collectionId of collectionIds) {
         const collection = collections.find((c) => c.id === collectionId)
         tasks.push({
@@ -522,7 +546,7 @@ function App() {
           lat: se.latitude,
           cogUrl,
           stats,
-          buffer: 1000,
+          buffer: bufferSize,
         })
 
         return {
@@ -713,6 +737,15 @@ function App() {
             <h2>Error</h2>
             <p>{error}</p>
           </div>
+        ) : projects.length === 0 ? (
+          <div className="no-projects">
+            <h2>No Projects Available</h2>
+            <p>You don&apos;t have access to any projects with sample events.</p>
+            <p>
+              To use this tool, you need to be a member of at least one MERMAID project
+              that has sample event data.
+            </p>
+          </div>
         ) : (
           <div className="dashboard">
             <div className="sidebar">
@@ -743,6 +776,40 @@ function App() {
                   selectedStats={selectedStats}
                   onSelectionChange={setSelectedStats}
                 />
+                <div className="buffer-config">
+                  <label className="buffer-label" htmlFor="buffer-size">
+                    Buffer size (meters)
+                  </label>
+                  <input
+                    id="buffer-size"
+                    type="number"
+                    className="buffer-input"
+                    value={bufferSize}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10)
+                      if (!isNaN(val) && val >= 0 && val <= 100000) {
+                        setBufferSize(val)
+                      }
+                    }}
+                    min={0}
+                    max={100000}
+                  />
+                </div>
+                {sampleEventsWithoutCoords.length > 0 && (
+                  <div className="coords-warning">
+                    <p className="coords-warning-header">
+                      {sampleEventsWithoutCoords.length} selected sample event(s) have missing coordinates and will be skipped:
+                    </p>
+                    <ul className="coords-warning-list">
+                      {sampleEventsWithoutCoords.slice(0, 3).map((se) => (
+                        <li key={se.sample_event_id}>{se.site_name} ({se.sample_date})</li>
+                      ))}
+                      {sampleEventsWithoutCoords.length > 3 && (
+                        <li>...and {sampleEventsWithoutCoords.length - 3} more</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
                 <button
                   className="extract-button"
                   onClick={handleExtract}
