@@ -9,7 +9,7 @@
   width: 100%;
   top: 0;
   left: 0;
-  z-index: 100;
+  z-index: 1001;
   height: 4rem;
   padding: 0 1rem;
   box-sizing: border-box;
@@ -193,6 +193,8 @@
   max-width: 1200px;
   margin-left: auto;
   margin-right: auto;
+  min-height: calc(100vh - 4rem);
+  box-sizing: border-box;
 }
 
 /* Welcome/Login screen */
@@ -281,6 +283,7 @@
 .dashboard {
   display: flex;
   gap: 2rem;
+  height: calc(100vh - 4rem - 4rem); /* viewport - header - padding */
 }
 
 /* Sidebar */
@@ -498,6 +501,8 @@
 .main-content {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .content-header {
@@ -519,7 +524,8 @@
   overflow: auto;
   border: 1px solid #ddd;
   border-radius: 4px;
-  max-height: 400px;
+  flex: 1;
+  min-height: 200px;
 }
 
 .sample-event-table {
@@ -1117,6 +1123,7 @@
 @media (max-width: 900px) {
   .dashboard {
     flex-direction: column;
+    height: auto;
   }
 
   .sidebar {
@@ -1131,6 +1138,12 @@
 
   .main {
     padding: 1rem;
+    min-height: auto;
+  }
+
+  .table-container {
+    flex: none;
+    max-height: 400px;
   }
 }
 
