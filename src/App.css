@@ -383,12 +383,17 @@
   gap: 0.5rem;
 }
 
+.date-range-inputs .react-datepicker-wrapper {
+  width: 100%;
+}
+
 .filter-date {
   width: 100%;
   padding: 0.5rem;
   border: 1px solid #ccc;
   border-radius: 4px;
   font-size: 0.9rem;
+  box-sizing: border-box;
 }
 
 .date-range-separator {

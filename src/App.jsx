@@ -1,5 +1,7 @@
 import { useAuth0 } from '@auth0/auth0-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import DatePicker from 'react-datepicker'
+import 'react-datepicker/dist/react-datepicker.css'
 import {
   createMermaidApi,
   extractProjects,
@@ -133,25 +135,41 @@ function MultiSelect({ label, options, selected, onChange }) {
   )
 }
 
+function parseIsoDate(isoString) {
+  if (!isoString) return null
+  const [year, month, day] = isoString.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+function formatIsoDate(date) {
+  if (!date) return ''
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function DateRangeFilter({ startDate, endDate, onStartChange, onEndChange }) {
   return (
     <div className="filter-group">
       <label className="filter-label">Date Range</label>
       <div className="date-range-inputs">
-        <input
-          type="date"
+        <DatePicker
+          selected={parseIsoDate(startDate)}
+          onChange={(date) => onStartChange(formatIsoDate(date))}
+          dateFormat="yyyy-MM-dd"
+          placeholderText="YYYY-MM-DD"
           className="filter-date"
-          value={startDate}
-          onChange={(e) => onStartChange(e.target.value)}
-          placeholder="Start date"
+          isClearable
         />
         <span className="date-range-separator">to</span>
-        <input
-          type="date"
+        <DatePicker
+          selected={parseIsoDate(endDate)}
+          onChange={(date) => onEndChange(formatIsoDate(date))}
+          dateFormat="yyyy-MM-dd"
+          placeholderText="YYYY-MM-DD"
           className="filter-date"
-          value={endDate}
-          onChange={(e) => onEndChange(e.target.value)}
-          placeholder="End date"
+          isClearable
         />
       </div>
     </div>
