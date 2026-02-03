@@ -92,21 +92,34 @@ export function csvRowsToObjects(rows) {
  * Generate covariate column headers and a lookup function
  * @param {Array} collections - Collection metadata with id and title
  * @param {Array} stats - List of stat names (mean, std, etc.)
+ * @param {Object} collectionBandInfo - Metadata about bands/columns per collection { [collectionId]: { type, keys: Set } }
  * @returns {Object} - { headers: string[], getValues: (sampleEventId, results) => string[] }
  */
-export function createCovariateColumns(collections, stats) {
+export function createCovariateColumns(collections, stats, collectionBandInfo) {
   const headers = collections.flatMap((col) => {
     const cleanTitle = (col.title || col.id).replace(/\s+/g, '_')
-    return stats.map((stat) => `${cleanTitle}_${stat}`)
+    const bandInfoForCol = collectionBandInfo?.[col.id]
+    const keys = bandInfoForCol ? [...bandInfoForCol.keys].sort() : ['band_1']
+
+    return keys.flatMap((key) => {
+      const cleanKey = key.replace(/\s+/g, '_')
+      return stats.map((stat) => `${cleanTitle}_${cleanKey}_${stat}`)
+    })
   })
 
   const getValues = (sampleEventId, extractionResults) => {
     return collections.flatMap((col) => {
       const seResults = extractionResults?.[sampleEventId]?.[col.id] || {}
-      return stats.map((stat) => {
-        const value = seResults[stat]
-        // Only include valid numbers, blank otherwise
-        return typeof value === 'number' && !Number.isNaN(value) ? value : ''
+      const bandInfoForCol = collectionBandInfo?.[col.id]
+      const keys = bandInfoForCol ? [...bandInfoForCol.keys].sort() : ['band_1']
+
+      return keys.flatMap((key) => {
+        const keyStats = seResults[key] || {}
+        return stats.map((stat) => {
+          const value = keyStats[stat]
+          // Only include valid numbers, blank otherwise
+          return typeof value === 'number' && !Number.isNaN(value) ? value : ''
+        })
       })
     })
   }
@@ -117,10 +130,11 @@ export function createCovariateColumns(collections, stats) {
 /**
  * Build XLSX workbook from protocol data with covariates joined
  * @param {Object} protocolData - Map of protocol -> { headers, data }
- * @param {Object} extractionResults - Results keyed by sampleEventId -> collectionId -> stats
+ * @param {Object} extractionResults - Results keyed by sampleEventId -> collectionId -> band/column -> stats
  * @param {Array} collections - Collection metadata with id and title
  * @param {Array} stats - List of stat names
  * @param {Set} selectedSampleEventIds - Set of selected sample event IDs to filter by
+ * @param {Object} collectionBandInfo - Metadata about bands/columns per collection { [collectionId]: { type, keys: Set } }
  * @returns {XLSX.WorkBook}
  */
 export function buildWorkbook(
@@ -128,10 +142,11 @@ export function buildWorkbook(
   extractionResults,
   collections,
   stats,
-  selectedSampleEventIds
+  selectedSampleEventIds,
+  collectionBandInfo
 ) {
   const workbook = XLSX.utils.book_new()
-  const covariateInfo = createCovariateColumns(collections, stats)
+  const covariateInfo = createCovariateColumns(collections, stats, collectionBandInfo)
 
   // Sort protocols alphabetically for consistent tab order
   const sortedProtocols = Object.keys(protocolData).sort()

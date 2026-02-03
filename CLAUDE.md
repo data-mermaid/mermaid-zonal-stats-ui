@@ -2,9 +2,9 @@
 
 ## Overview
 
-**mermaid-zonal-stats-ui** is a React web application that allows authenticated MERMAID users to extract environmental covariates (zonal statistics) from raster datasets for their coral reef sample events.
+**mermaid-zonal-stats-ui** is a React web application that allows authenticated MERMAID users to extract environmental covariates (zonal statistics) from raster and vector datasets for their coral reef sample events.
 
-**Primary Use Case:** Researchers enrich their MERMAID sample event data with environmental variables (SST, DHW, etc.) extracted from satellite imagery for survey locations and dates.
+**Primary Use Case:** Researchers enrich their MERMAID sample event data with environmental variables (SST, DHW, etc.) extracted from satellite imagery (raster) or GeoParquet vector data for survey locations and dates.
 
 **Related:** See `../CLAUDE.md` for the full MERMAID monorepo overview.
 
@@ -106,38 +106,54 @@ Protocols: `beltfishes`, `benthiclits`, `benthicpits`, `benthicpqts`, `bleaching
 
 COGs identified by `data` asset in items. Vector-only collections (no `data` asset) are disabled in UI.
 
-### Zonal Stats API
+### Zonal Stats API (v0.2.0)
 
-**Endpoint:** `POST /zonal-stats`
+**Raster Endpoint:** `POST /zonal-stats/raster`
 ```json
 {
-  "aoi": { "type": "Point", "coordinates": [lon, lat], "buffer_size": 1000 },
+  "aoi": { "type": "Point", "coordinates": [lon, lat], "radius": 1000 },
   "stats": ["mean", "std", "min", "max", "median", "majority"],
-  "image": { "url": "https://...cog.tif", "bands": [1] },
+  "url": "https://...cog.tif",
+  "bands": [1],
   "approx_stats": true
 }
 ```
 **Response:** `{ "band_1": { "mean": 7.8, "std": 2.1, ... } }`
 
+**Vector Endpoint:** `POST /zonal-stats/vector`
+```json
+{
+  "aoi": { "type": "Point", "coordinates": [lon, lat], "radius": 1000 },
+  "stats": ["mean", "std", "min", "max", "median"],
+  "url": "https://...data.parquet",
+  "columns": ["value", "population"]
+}
+```
+**Response:** `{ "value": { "mean": 7.8, "std": 2.1, ... }, "population": { ... } }`
+
 ## Key Configuration
 
 - **Concurrency:** 10 parallel for extraction, 5 for XLSX fetches
 - **Buffer default:** 1000 meters (configurable 0-100,000m)
-- **Stats available:** mean, median, std, min, max, majority
+- **Raster stats available:** mean, median, std, min, max, majority
+- **Vector stats available:** mean, median, std, min, max (majority not supported for vectors)
+- **Asset types:** Raster (COG), Vector (GeoParquet), or both
 
 ## Known Limitations
 
 - Large extractions (1000+ SE × collection combinations) may be slow
 - XLSX download fetches protocol CSVs which can take time for many projects
 - No raster preview on map (TiTiler integration deferred)
+- Vector collections require column metadata in STAC item or fall back to 'value' column
 
-## Current Features (v0.1.0)
+## Current Features (v0.2.0)
 
 - Auth0 authentication
 - Filter sample events by project/date/country/organization
 - Sortable, selectable sample event table
 - Leaflet map with marker clustering
-- STAC collection selection (auto-detects COG availability)
+- STAC collection selection (auto-detects raster COG and vector GeoParquet assets)
+- Support for both raster (COG) and vector (GeoParquet) zonal statistics
 - Configurable buffer size and statistics
 - Parallel covariate extraction with progress
 - CSV export (summary) - instant download

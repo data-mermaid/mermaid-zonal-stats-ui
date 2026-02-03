@@ -10,9 +10,9 @@ import {
   flattenRecords,
   PROTOCOL_ENDPOINTS,
 } from './services/mermaidApi'
-import { findItemForDate, getCogUrl } from './services/stacApi'
-import { getZonalStats } from './services/zonalStatsApi'
-import { generateCsvContent, downloadCsv } from './utils/csv'
+import { findItemForDate, getCogUrl, getParquetUrl } from './services/stacApi'
+import { getZonalStats, getVectorZonalStats } from './services/zonalStatsApi'
+import { generateCsvContent, downloadCsv } from './utils/csv.js'
 import {
   parseCsv,
   csvRowsToObjects,
@@ -25,6 +25,39 @@ import CollectionSelector from './components/CollectionSelector'
 import StatsSelector from './components/StatsSelector'
 import mermaidLogo from './assets/mermaid-logo.svg'
 import './App.css'
+
+/**
+ * Process tasks with a sliding window of concurrent operations.
+ * As each task completes, immediately starts the next one.
+ * @param {Array} tasks - Array of items to process
+ * @param {Function} processor - Async function to process each task
+ * @param {number} concurrency - Max concurrent operations
+ * @param {Function} onProgress - Called after each task completes with (completed, total)
+ * @returns {Promise<Array>} - Results in same order as tasks
+ */
+async function processWithConcurrency(tasks, processor, concurrency, onProgress) {
+  const results = new Array(tasks.length)
+  let nextIndex = 0
+  let completed = 0
+
+  async function runNext() {
+    const index = nextIndex++
+    if (index >= tasks.length) return
+
+    results[index] = await processor(tasks[index], index)
+    completed++
+    if (onProgress) onProgress(completed, tasks.length)
+    await runNext() // Immediately pick up next task
+  }
+
+  // Start initial batch of concurrent workers
+  const workers = Array(Math.min(concurrency, tasks.length))
+    .fill(null)
+    .map(() => runNext())
+
+  await Promise.all(workers)
+  return results
+}
 
 function ExternalLinkIcon({ className }) {
   return (
@@ -445,6 +478,7 @@ function App() {
   const [extractionProgress, setExtractionProgress] = useState({ current: 0, total: 0, currentSE: 0, totalSE: 0 })
   const [extractionResults, setExtractionResults] = useState(null)
   const [extractionErrors, setExtractionErrors] = useState([])
+  const [collectionBandInfo, setCollectionBandInfo] = useState({})
 
   // XLSX download state
   const [xlsxDownloading, setXlsxDownloading] = useState(false)
@@ -568,6 +602,7 @@ function App() {
   useEffect(() => {
     setExtractionResults(null)
     setExtractionErrors([])
+    setCollectionBandInfo({})
   }, [selectedSampleEventIds, selectedCollections, selectedStats, bufferSize])
 
   // Check for sample events with missing coordinates
@@ -608,6 +643,9 @@ function App() {
           se,
           collectionId,
           collectionName: collection?.title || collectionId,
+          hasCog: collection?.hasCog || false,
+          hasParquet: collection?.hasParquet || false,
+          parquetColumns: collection?.parquetColumns || [],
         })
       }
     }
@@ -625,7 +663,7 @@ function App() {
     const stacCache = new Map()
 
     const processTask = async (task) => {
-      const { se, collectionId, collectionName } = task
+      const { se, collectionId, collectionName, hasCog, hasParquet, parquetColumns } = task
       const cacheKey = `${collectionId}:${se.sample_date}`
 
       try {
@@ -645,40 +683,61 @@ function App() {
               siteName: se.site_name,
               collectionId,
               collectionName,
-              error: 'No imagery found for this date',
+              error: 'No data found for this date',
             },
           }
         }
 
-        const cogUrl = getCogUrl(item)
+        // Determine which type of extraction to perform
+        // Prefer raster if available, fall back to vector
+        if (hasCog) {
+          const cogUrl = getCogUrl(item)
 
-        if (!cogUrl) {
+          if (!cogUrl) {
+            // Fall back to vector if COG not found in this item
+            if (hasParquet) {
+              return processVectorExtraction(se, item, collectionId, collectionName, parquetColumns, stats, bufferSize)
+            }
+            return {
+              error: {
+                sampleEventId: se.sample_event_id,
+                siteName: se.site_name,
+                collectionId,
+                collectionName,
+                error: 'No COG URL in item',
+              },
+            }
+          }
+
+          // Call raster zonal stats API
+          const zonalResult = await getZonalStats({
+            lon: se.longitude,
+            lat: se.latitude,
+            cogUrl,
+            stats,
+            buffer: bufferSize,
+          })
+
+          return {
+            result: {
+              sampleEventId: se.sample_event_id,
+              collectionId,
+              stats: zonalResult,  // Store ALL bands
+              assetType: 'raster',
+            },
+          }
+        } else if (hasParquet) {
+          return processVectorExtraction(se, item, collectionId, collectionName, parquetColumns, stats, bufferSize)
+        } else {
           return {
             error: {
               sampleEventId: se.sample_event_id,
               siteName: se.site_name,
               collectionId,
               collectionName,
-              error: 'No COG URL in item',
+              error: 'No raster or vector assets found',
             },
           }
-        }
-
-        // Call zonal stats API
-        const zonalResult = await getZonalStats({
-          lon: se.longitude,
-          lat: se.latitude,
-          cogUrl,
-          stats,
-          buffer: bufferSize,
-        })
-
-        return {
-          result: {
-            sampleEventId: se.sample_event_id,
-            collectionId,
-            stats: zonalResult.band_1 || {},
-          },
         }
       } catch (err) {
         return {
@@ -693,35 +752,83 @@ function App() {
       }
     }
 
-    // Process tasks in parallel with concurrency limit
-    const CONCURRENCY = 10
-    for (let i = 0; i < tasks.length; i += CONCURRENCY) {
-      const batch = tasks.slice(i, i + CONCURRENCY)
+    const processVectorExtraction = async (se, item, collectionId, collectionName, parquetColumns, stats, bufferSize) => {
+      const parquetUrl = getParquetUrl(item)
 
-      setExtractionProgress({
-        current: completedOperations,
-        total: totalOperations,
-        currentSE: Math.floor(completedOperations / numCollections),
-        totalSE,
+      if (!parquetUrl) {
+        return {
+          error: {
+            sampleEventId: se.sample_event_id,
+            siteName: se.site_name,
+            collectionId,
+            collectionName,
+            error: 'No GeoParquet URL in item',
+          },
+        }
+      }
+
+      // Use provided columns or fall back to default
+      const columns = parquetColumns.length > 0 ? parquetColumns : ['value']
+
+      // Call vector zonal stats API (geometry column is auto-detected by the API)
+      const zonalResult = await getVectorZonalStats({
+        lon: se.longitude,
+        lat: se.latitude,
+        parquetUrl,
+        columns,
+        stats,
+        buffer: bufferSize,
       })
 
-      const batchResults = await Promise.all(batch.map(processTask))
+      return {
+        result: {
+          sampleEventId: se.sample_event_id,
+          collectionId,
+          stats: zonalResult,  // Store ALL columns
+          assetType: 'vector',
+        },
+      }
+    }
 
-      for (const outcome of batchResults) {
-        if (outcome.result) {
-          const { sampleEventId, collectionId, stats: resultStats } = outcome.result
-          if (!results[sampleEventId]) results[sampleEventId] = {}
-          results[sampleEventId][collectionId] = resultStats
-        } else if (outcome.error) {
-          errors.push(outcome.error)
+    // Process tasks with sliding window concurrency (keeps pipeline full)
+    const CONCURRENCY = 25
+    const bandInfo = {}  // Track band/column keys per collection
+
+    const outcomes = await processWithConcurrency(
+      tasks,
+      processTask,
+      CONCURRENCY,
+      (completed, total) => {
+        setExtractionProgress({
+          current: completed,
+          total,
+          currentSE: Math.floor(completed / numCollections),
+          totalSE,
+        })
+      }
+    )
+
+    // Process all outcomes
+    for (const outcome of outcomes) {
+      if (outcome.result) {
+        const { sampleEventId, collectionId, stats: resultStats, assetType } = outcome.result
+        if (!results[sampleEventId]) results[sampleEventId] = {}
+        results[sampleEventId][collectionId] = resultStats
+
+        // Track keys (bands/columns) for header generation
+        if (!bandInfo[collectionId]) {
+          bandInfo[collectionId] = { type: assetType, keys: new Set() }
         }
-        completedOperations++
+        Object.keys(resultStats).forEach((k) => bandInfo[collectionId].keys.add(k))
+      } else if (outcome.error) {
+        errors.push(outcome.error)
       }
     }
 
     setExtractionProgress({ current: totalOperations, total: totalOperations, currentSE: totalSE, totalSE })
     setExtractionResults(results)
     setExtractionErrors(errors)
+    setCollectionBandInfo(bandInfo)
     setExtracting(false)
   }
 
@@ -737,7 +844,8 @@ function App() {
       selectedSampleEvents,
       extractionResults,
       selectedCollectionObjects,
-      [...selectedStats]
+      [...selectedStats],
+      collectionBandInfo
     )
 
     const timestamp = new Date().toISOString().slice(0, 10)
@@ -762,41 +870,40 @@ function App() {
 
       setXlsxProgress({ current: 0, total: requiredFetches.length, message: 'Fetching protocol data...' })
 
-      // Fetch protocol CSVs with concurrency limit
-      const CONCURRENCY = 5
+      // Fetch protocol CSVs with sliding window concurrency
+      const CONCURRENCY = 10
       const protocolData = {} // protocol -> { headers, data }
 
-      for (let i = 0; i < requiredFetches.length; i += CONCURRENCY) {
-        const batch = requiredFetches.slice(i, i + CONCURRENCY)
-
-        const batchResults = await Promise.all(
-          batch.map(async ({ projectId, protocol }) => {
-            try {
-              const csvText = await api.getProtocolCsv(projectId, protocol)
-              const rows = parseCsv(csvText)
-              const { headers, data } = csvRowsToObjects(rows)
-              return { protocol, headers, data, error: null }
-            } catch (err) {
-              console.error(`Failed to fetch ${protocol} for project ${projectId}:`, err)
-              return { protocol, headers: [], data: [], error: err.message }
-            }
-          })
-        )
-
-        // Merge results by protocol
-        for (const result of batchResults) {
-          if (result.error) continue
-          if (!protocolData[result.protocol]) {
-            protocolData[result.protocol] = { headers: result.headers, data: [] }
+      const fetchResults = await processWithConcurrency(
+        requiredFetches,
+        async ({ projectId, protocol }) => {
+          try {
+            const csvText = await api.getProtocolCsv(projectId, protocol)
+            const rows = parseCsv(csvText)
+            const { headers, data } = csvRowsToObjects(rows)
+            return { protocol, headers, data, error: null }
+          } catch (err) {
+            console.error(`Failed to fetch ${protocol} for project ${projectId}:`, err)
+            return { protocol, headers: [], data: [], error: err.message }
           }
-          protocolData[result.protocol].data.push(...result.data)
+        },
+        CONCURRENCY,
+        (completed, total) => {
+          setXlsxProgress({
+            current: completed,
+            total,
+            message: `Fetching protocol data... ${completed}/${total}`,
+          })
         }
+      )
 
-        setXlsxProgress({
-          current: Math.min(i + CONCURRENCY, requiredFetches.length),
-          total: requiredFetches.length,
-          message: `Fetching protocol data... ${Math.min(i + CONCURRENCY, requiredFetches.length)}/${requiredFetches.length}`,
-        })
+      // Merge results by protocol
+      for (const result of fetchResults) {
+        if (result.error) continue
+        if (!protocolData[result.protocol]) {
+          protocolData[result.protocol] = { headers: result.headers, data: [] }
+        }
+        protocolData[result.protocol].data.push(...result.data)
       }
 
       if (Object.keys(protocolData).length === 0) {
@@ -812,7 +919,8 @@ function App() {
         extractionResults,
         selectedCollectionObjects,
         [...selectedStats],
-        selectedSampleEventIds
+        selectedSampleEventIds,
+        collectionBandInfo
       )
 
       // Download

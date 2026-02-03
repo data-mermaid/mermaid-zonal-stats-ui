@@ -15,12 +15,13 @@ function escapeCSV(value) {
 /**
  * Generate CSV content from sample events and extraction results
  * @param {Array} sampleEvents - Selected sample events with full data
- * @param {Object} extractionResults - Results keyed by sampleEventId -> collectionId -> stats
+ * @param {Object} extractionResults - Results keyed by sampleEventId -> collectionId -> band/column -> stats
  * @param {Array} collections - Collection metadata with id and title
  * @param {Array} stats - List of stat names (mean, std, etc.)
+ * @param {Object} collectionBandInfo - Metadata about bands/columns per collection { [collectionId]: { type, keys: Set } }
  * @returns {string} - CSV content string
  */
-export function generateCsvContent(sampleEvents, extractionResults, collections, stats) {
+export function generateCsvContent(sampleEvents, extractionResults, collections, stats, collectionBandInfo) {
   // Define the base sample event fields
   const seFields = [
     { key: 'sample_event_id', label: 'sample_event_id' },
@@ -47,11 +48,17 @@ export function generateCsvContent(sampleEvents, extractionResults, collections,
     { key: 'tags_list', label: 'organizations' },
   ]
 
-  // Build covariate column headers: {collection_title}_{stat}
+  // Build covariate column headers: {collection_title}_{band/column}_{stat}
   // Clean collection title for column name (replace spaces with underscores)
   const covariateHeaders = collections.flatMap((col) => {
     const cleanTitle = (col.title || col.id).replace(/\s+/g, '_')
-    return stats.map((stat) => `${cleanTitle}_${stat}`)
+    const bandInfoForCol = collectionBandInfo?.[col.id]
+    const keys = bandInfoForCol ? [...bandInfoForCol.keys].sort() : ['band_1']
+
+    return keys.flatMap((key) => {
+      const cleanKey = key.replace(/\s+/g, '_')
+      return stats.map((stat) => `${cleanTitle}_${cleanKey}_${stat}`)
+    })
   })
 
   // Build header row
@@ -74,11 +81,18 @@ export function generateCsvContent(sampleEvents, extractionResults, collections,
     const computedData = [protocolsList, observersList, tagsList]
 
     // Covariate data - only include valid numbers, blank otherwise
+    // Structure: extractionResults[sampleEventId][collectionId][band/column][stat]
     const covariateData = collections.flatMap((col) => {
       const seResults = extractionResults?.[se.sample_event_id]?.[col.id] || {}
-      return stats.map((stat) => {
-        const value = seResults[stat]
-        return typeof value === 'number' && !Number.isNaN(value) ? value : ''
+      const bandInfoForCol = collectionBandInfo?.[col.id]
+      const keys = bandInfoForCol ? [...bandInfoForCol.keys].sort() : ['band_1']
+
+      return keys.flatMap((key) => {
+        const keyStats = seResults[key] || {}
+        return stats.map((stat) => {
+          const value = keyStats[stat]
+          return typeof value === 'number' && !Number.isNaN(value) ? value : ''
+        })
       })
     })
 
