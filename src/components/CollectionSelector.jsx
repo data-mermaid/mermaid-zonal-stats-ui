@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { fetchCollectionsWithCogStatus } from '../services/stacApi'
+import { fetchCollectionsWithAssetStatus } from '../services/stacApi'
 
 function CollectionSelector({ selectedCollections, onSelectionChange, onCollectionsLoaded }) {
   const [collections, setCollections] = useState([])
@@ -11,7 +11,7 @@ function CollectionSelector({ selectedCollections, onSelectionChange, onCollecti
     const loadCollections = async () => {
       try {
         setLoading(true)
-        const data = await fetchCollectionsWithCogStatus()
+        const data = await fetchCollectionsWithAssetStatus()
         setCollections(data)
         onCollectionsLoaded?.(data)
       } catch (err) {
@@ -63,25 +63,43 @@ function CollectionSelector({ selectedCollections, onSelectionChange, onCollecti
     )
   }
 
+  const hasSelectableAsset = (collection) => collection.hasCog || collection.hasParquet
+
+  const getAssetBadge = (collection) => {
+    if (collection.hasCog && collection.hasParquet) return 'Raster + Vector'
+    if (collection.hasCog) return 'Raster'
+    if (collection.hasParquet) return 'Vector'
+    return 'No data'
+  }
+
+  const getBadgeClass = (collection) => {
+    if (!hasSelectableAsset(collection)) return 'collection-badge-disabled'
+    if (collection.hasParquet && !collection.hasCog) return 'collection-badge-vector'
+    return 'collection-badge-raster'
+  }
+
   return (
     <div className="collection-selector">
       <div className="collection-list">
         {collections.map((collection) => {
           const isExpanded = expandedIds.has(collection.id)
+          const isSelectable = hasSelectableAsset(collection)
           return (
             <div
               key={collection.id}
-              className={`collection-item ${!collection.hasCog ? 'collection-disabled' : ''} ${selectedCollections.has(collection.id) ? 'collection-selected' : ''}`}
+              className={`collection-item ${!isSelectable ? 'collection-disabled' : ''} ${selectedCollections.has(collection.id) ? 'collection-selected' : ''}`}
             >
               <label className="collection-label">
                 <input
                   type="checkbox"
                   checked={selectedCollections.has(collection.id)}
                   onChange={() => handleToggle(collection.id)}
-                  disabled={!collection.hasCog}
+                  disabled={!isSelectable}
                 />
                 <span className="collection-title">{collection.title}</span>
-                {!collection.hasCog && <span className="collection-badge">Vector only</span>}
+                <span className={`collection-badge ${getBadgeClass(collection)}`}>
+                  {getAssetBadge(collection)}
+                </span>
               </label>
               {collection.description && (
                 <button
